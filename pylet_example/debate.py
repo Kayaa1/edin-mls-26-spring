@@ -3,7 +3,7 @@
 🐍 vs 🦀  Python vs Rust Debate
 
 Two LLM instances argue about programming languages.
-Requires two vLLM endpoints deployed via PyLet.
+Requires two SGLang endpoints deployed via PyLet.
 
 Usage:
     # Deploy both models first (see README.md), then:

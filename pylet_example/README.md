@@ -8,20 +8,20 @@ Deploy two `Qwen/Qwen3.5-2B` instances on a SLURM GPU cluster with PyLet. One pl
 Login Node (gala2)            Compute Node (saxa, 2× GPU)
 ┌──────────────┐              ┌──────────────────────────┐
 │  pylet head  │◄────────────►│     pylet worker         │
-│  (port 8000) │              │  GPU 0 → vLLM python-fan │
-│              │              │  GPU 1 → vLLM rust-fan   │
+│  (port 8000) │              │  GPU 0 → SGLang python-fan│
+│              │              │  GPU 1 → SGLang rust-fan  │
 │  debate.py   │              └──────────────────────────┘
 └──────────────┘
 ```
 
 - **Head** runs on the login node (no GPU needed, just the scheduler).
 - **Worker** runs on a SLURM-allocated compute node with 2 GPUs.
-- Each vLLM instance gets 1 GPU via PyLet's automatic allocation.
+- Each SGLang instance gets 1 GPU via PyLet's automatic allocation.
 
 ## Prerequisites
 
 ```bash
-pip install pylet vllm openai
+pip install pylet sglang openai
 ```
 
 ## Step-by-step
@@ -51,17 +51,17 @@ pylet list-workers
 
 You should see 1 worker with 2 GPU units available.
 
-### 3. Deploy two vLLM instances (Login Node — Terminal 2)
+### 3. Deploy two SGLang instances (Login Node — Terminal 2)
 
 ```bash
 # Python fan
 pylet submit \
-  'vllm serve Qwen/Qwen3.5-2B --port $PORT' \
+  'python -m sglang.launch_server --model-path Qwen/Qwen3-1.7B --reasoning-parser qwen3 --port $PORT --cuda-graph-max-bs 1' \
   --name python-fan --gpu-units 1
 
 # Rust evangelist
 pylet submit \
-  'vllm serve Qwen/Qwen3.5-2B --port $PORT' \
+  'python -m sglang.launch_server --model-path Qwen/Qwen3-1.7B --reasoning-parser qwen3 --port $PORT --cuda-graph-max-bs 1' \
   --name rust-fan --gpu-units 1
 ```
 
@@ -129,7 +129,7 @@ scancel --name pylet-worker   # release the SLURM GPUs
 |---|---|
 | **Head on login node** | Scheduler runs without GPU, accessible from anywhere |
 | **Worker via SLURM** | `sbatch` allocates GPUs; pylet worker manages them |
-| **Multi-instance** | Two vLLM servers running simultaneously, 1 GPU each |
+| **Multi-instance** | Two SGLang servers running simultaneously, 1 GPU each |
 | **Auto port** | `$PORT` → each server gets a unique port |
 | **Service discovery** | `get-endpoint` finds both by name |
 | **Standard API** | Both expose OpenAI-compatible endpoints |

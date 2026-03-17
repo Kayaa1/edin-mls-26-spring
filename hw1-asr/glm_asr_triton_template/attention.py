@@ -220,6 +220,133 @@ def causal_mask_kernel(
     )
 
 
+@triton.jit
+def flash_attention_kernel(
+    q_ptr,
+    k_ptr,
+    v_ptr,
+    o_ptr,
+    seq_q,
+    seq_k,
+    num_heads,
+    head_dim,
+    scale,
+    stride_q0,
+    stride_q1,
+    stride_q2,
+    stride_q3,
+    stride_k0,
+    stride_k1,
+    stride_k2,
+    stride_k3,
+    stride_v0,
+    stride_v1,
+    stride_v2,
+    stride_v3,
+    stride_o0,
+    stride_o1,
+    stride_o2,
+    stride_o3,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+    CAUSAL: tl.constexpr,
+):
+    """
+    FlashAttention-style kernel using blockwise QK^T and online softmax.
+    Grid: (batch * heads, ceil_div(seq_q, BLOCK_M))
+    """
+    pid_bh = tl.program_id(0)
+    pid_m = tl.program_id(1)
+
+    pid_b = pid_bh // num_heads
+    pid_h = pid_bh % num_heads
+
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_d = tl.arange(0, BLOCK_D)
+    offs_n = tl.arange(0, BLOCK_N)
+
+    q_ptrs = (
+        q_ptr
+        + pid_b * stride_q0
+        + pid_h * stride_q1
+        + offs_m[:, None] * stride_q2
+        + offs_d[None, :] * stride_q3
+    )
+    q = tl.load(
+        q_ptrs,
+        mask=(offs_m[:, None] < seq_q) & (offs_d[None, :] < head_dim),
+        other=0.0,
+    ).to(tl.float32)
+
+    m_i = tl.full((BLOCK_M,), -float("inf"), dtype=tl.float32)
+    l_i = tl.zeros((BLOCK_M,), dtype=tl.float32)
+    acc = tl.zeros((BLOCK_M, BLOCK_D), dtype=tl.float32)
+
+    for start_n in tl.range(0, seq_k, BLOCK_N):
+        n_idx = start_n + offs_n
+
+        k_ptrs = (
+            k_ptr
+            + pid_b * stride_k0
+            + pid_h * stride_k1
+            + n_idx[:, None] * stride_k2
+            + offs_d[None, :] * stride_k3
+        )
+        v_ptrs = (
+            v_ptr
+            + pid_b * stride_v0
+            + pid_h * stride_v1
+            + n_idx[:, None] * stride_v2
+            + offs_d[None, :] * stride_v3
+        )
+
+        kv_mask = (n_idx[:, None] < seq_k) & (offs_d[None, :] < head_dim)
+        k = tl.load(k_ptrs, mask=kv_mask, other=0.0).to(tl.float32)
+        v = tl.load(v_ptrs, mask=kv_mask, other=0.0).to(tl.float32)
+
+        qk = tl.dot(q, tl.trans(k)) * scale
+        qk = tl.where(n_idx[None, :] < seq_k, qk, -float("inf"))
+
+        if CAUSAL:
+            qk = tl.where(offs_m[:, None] >= n_idx[None, :], qk, -float("inf"))
+
+        m_ij = tl.max(qk, axis=1)
+        row_has_cur = m_ij != -float("inf")
+        m_ij_safe = tl.where(row_has_cur, m_ij, 0.0)
+
+        p = tl.exp(qk - m_ij_safe[:, None])
+        l_ij = tl.sum(p, axis=1)
+        acc_ij = tl.dot(p, v)
+
+        m_new = tl.maximum(m_i, m_ij)
+        row_has_prev = m_i != -float("inf")
+        m_i_safe = tl.where(row_has_prev, m_i, 0.0)
+        m_new_safe = tl.where(m_new != -float("inf"), m_new, 0.0)
+        alpha = tl.where(row_has_prev, tl.exp(m_i_safe - m_new_safe), 0.0)
+        beta = tl.where(row_has_cur, tl.exp(m_ij_safe - m_new_safe), 0.0)
+
+        l_i = alpha * l_i + beta * l_ij
+        acc = alpha[:, None] * acc + beta[:, None] * acc_ij
+        m_i = m_new
+
+    l_i_safe = tl.where(l_i > 0, l_i, 1.0)
+    out = acc / l_i_safe[:, None]
+
+    o_ptrs = (
+        o_ptr
+        + pid_b * stride_o0
+        + pid_h * stride_o1
+        + offs_m[:, None] * stride_o2
+        + offs_d[None, :] * stride_o3
+    )
+    tl.store(
+        o_ptrs,
+        out,
+        mask=(offs_m[:, None] < seq_q) & (offs_d[None, :] < head_dim),
+    )
+
+
 # ============================================================================
 # Attention Classes
 # ============================================================================
@@ -289,9 +416,11 @@ def next_power_of_two(x: int) -> int:
 
 
 MAX_ATTENTION_DIM = 256
+MAX_FLASH_HEAD_DIM = 128
+USE_FLASH_ATTENTION = True
 
 
-def scaled_dot_product_attention(
+def scaled_dot_product_attention_legacy(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
@@ -300,7 +429,7 @@ def scaled_dot_product_attention(
     scale: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Scaled dot-product attention using Triton kernels.
+    Original three-stage attention path kept as a correctness fallback.
     """
     batch, num_heads, seq_q, head_dim = q.shape
     _, _, seq_k, _ = k.shape
@@ -448,6 +577,129 @@ def scaled_dot_product_attention(
     output = torch.einsum("bnqk,bnkd->bnqd", attn_weights, v)
 
     return output.to(q.dtype)
+
+
+def _flash_attention_config(seq_k: int, head_dim: int) -> Tuple[int, int, int, int]:
+    """Pick a conservative starting config for the FlashAttention-style kernel."""
+    block_m = 32 if seq_k >= 64 else 16
+    block_n = 64
+    num_warps = 4 if head_dim <= 64 else 8
+    num_stages = 2
+    return block_m, block_n, num_warps, num_stages
+
+
+def flash_scaled_dot_product_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    is_causal: bool = False,
+    scale: Optional[float] = None,
+) -> torch.Tensor:
+    """
+    FlashAttention-style path that streams K/V blocks and avoids materializing scores.
+    """
+    batch, num_heads, seq_q, head_dim = q.shape
+    _, _, seq_k, _ = k.shape
+
+    if scale is None:
+        scale = 1.0 / np.sqrt(head_dim)
+
+    block_d = next_power_of_two(head_dim)
+    block_m, block_n, num_warps, num_stages = _flash_attention_config(seq_k, head_dim)
+    output = torch.empty(
+        (batch, num_heads, seq_q, head_dim),
+        dtype=torch.float32,
+        device=q.device,
+    )
+
+    grid = (batch * num_heads, triton.cdiv(seq_q, block_m))
+    flash_attention_kernel[grid](
+        q,
+        k,
+        v,
+        output,
+        seq_q,
+        seq_k,
+        num_heads,
+        head_dim,
+        float(scale),
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        output.stride(0),
+        output.stride(1),
+        output.stride(2),
+        output.stride(3),
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        BLOCK_D=block_d,
+        CAUSAL=is_causal,
+        num_warps=num_warps,
+        num_stages=num_stages,
+    )
+    return output.to(q.dtype)
+
+
+def use_flash_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> bool:
+    """Use a conservative gate so unsupported cases stay on the legacy path."""
+    if not USE_FLASH_ATTENTION:
+        return False
+    if attention_mask is not None:
+        return False
+    if not (q.is_cuda and k.is_cuda and v.is_cuda):
+        return False
+    if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
+        return False
+    if q.shape[-1] != k.shape[-1] or q.shape[-1] != v.shape[-1]:
+        return False
+
+    head_dim = q.shape[-1]
+    block_d = next_power_of_two(head_dim)
+    return block_d <= MAX_FLASH_HEAD_DIM and q.shape[2] > 0 and k.shape[2] > 0
+
+
+def scaled_dot_product_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    is_causal: bool = False,
+    scale: Optional[float] = None,
+) -> torch.Tensor:
+    """
+    Scaled dot-product attention with a FlashAttention-style fast path.
+    """
+    if use_flash_attention(q, k, v, attention_mask):
+        return flash_scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            is_causal=is_causal,
+            scale=scale,
+        )
+
+    return scaled_dot_product_attention_legacy(
+        q,
+        k,
+        v,
+        attention_mask=attention_mask,
+        is_causal=is_causal,
+        scale=scale,
+    )
 
 
 if __name__ == "__main__":

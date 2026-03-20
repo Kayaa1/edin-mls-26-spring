@@ -8,6 +8,7 @@
 \usepackage{url}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
 
 \title{Report Template for MLS}
 
@@ -58,6 +59,24 @@ In this subsection, you should clearly articulate the motivation for GPU kernel 
     \item What are the computational challenges of implementing custom GPU kernels (e.g., in Triton or cuTile) for a real ASR pipeline?
 \end{itemize}
 
+\textbf{GLM-ASR and its pipeline.}
+GLM-ASR is a multimodal speech-to-text model that performs end-to-end automatic speech recognition through three sequential components.
+Raw audio is first converted into a 128-bin Mel spectrogram and subsampled $2{\times}$ by two 1D convolutional layers.
+The resulting sequence is encoded by an \textbf{Audio Encoder}: a 32-layer Transformer with hidden size 1280, 20 attention heads (head dimension 64), intermediate size 5120, LayerNorm normalization, GELU activation, and partial RoPE applied to 50\% of head dimensions.
+Its output is then compressed by a \textbf{Multimodal Projector} that concatenates every 4 consecutive frames ($1280{\times}4 = 5120$) and projects through a two-layer MLP ($5120{\to}4096{\to}3584$ with GELU), mapping audio representations into the text embedding space.
+Finally, a \textbf{Text Decoder}---a 28-layer Llama-style Transformer with hidden size 3584, Grouped Query Attention (28 Q-heads, 4 KV-heads, head dimension 128), intermediate size 18944, RMSNorm normalization, and SwiGLU gating---autoregressively generates the output token sequence.
+
+\textbf{Why GPU kernel optimization matters.}
+ASR inference is latency-critical for real-time applications such as live transcription and voice assistants.
+While the Audio Encoder's 32 layers run once per utterance, the Text Decoder's 28 layers execute at every autoregressive decoding step---and since generation cannot be parallelized across output tokens, per-step kernel inefficiencies accumulate linearly with output length.
+Without custom GPU kernels, high-level PyTorch operators introduce unnecessary memory allocations, redundant kernel launches, and missed fusion opportunities---all of which inflate end-to-end latency.
+
+\textbf{Challenges of custom kernel implementation.}
+Implementing production-quality kernels for GLM-ASR in Triton presents three main challenges.
+First, non-power-of-two hidden dimensions (1280, 3584, 18944) require tile-level padding and out-of-bounds masking in every kernel, since Triton requires compile-time constant block sizes that must be powers of two.
+Second, the heterogeneous architecture demands structurally distinct kernels: LayerNorm and GELU for the audio path versus RMSNorm and SiLU/SwiGLU for the text path, each with different reduction strategies and memory-access patterns.
+Third, GQA in the text decoder (28 Q-heads sharing 4 KV-heads) complicates attention kernel design, and efficient attention must avoid materialising the full $O(\mathrm{seq}^2)$ score matrix---requiring a FlashAttention-style approach that maintains per-block running softmax statistics across tiled K/V blocks while accumulating weighted value sums in registers.
+
 \subsection{System Overview}
 
 This subsection should provide a high-level description of the kernels you
@@ -75,6 +94,41 @@ include the following:
 \end{itemize}
  
 
+The system architecture can be seen in Fig.~\ref{fig:asr-pipeline}. We implement the system in \textbf{Triton track}.
+Table~\ref{tab:kernels} summarises all ten Triton kernels implemented and their roles in the pipeline.
+
+\begin{table}[h!]
+\vspace{-1ex}
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Kernel} & \textbf{File} & \textbf{Used in} \\
+\midrule
+\texttt{rmsnorm\_kernel}            & \texttt{layers.py}    & Text Decoder pre-norm \\
+\texttt{layernorm\_kernel}          & \texttt{layers.py}    & Audio Encoder pre-norm \\
+\texttt{gelu\_kernel}               & \texttt{layers.py}    & Audio Encoder, Projector MLP \\
+\texttt{silu\_kernel}               & \texttt{layers.py}    & Text Decoder SwiGLU gate \\
+\texttt{linear\_kernel\_tf32}       & \texttt{layers.py}    & All linear projections \\
+\texttt{softmax\_kernel}            & \texttt{layers.py}    & Text Decoder output (standalone) \\
+\texttt{attention\_scores\_kernel}  & \texttt{attention.py} & $QK^{\top}\!\cdot\!s$ for all heads \\
+\texttt{softmax\_inplace\_kernel}   & \texttt{attention.py} & Attention weight normalisation \\
+\texttt{attention\_output\_kernel}  & \texttt{attention.py} & $\mathrm{attn}\cdot V$ \\
+\texttt{compute\_freqs\_kernel}     & \texttt{rope.py}      & RoPE $\cos$/$\sin$ cache \\
+\bottomrule
+\end{tabular}
+\caption{Implemented Triton kernels and their roles in GLM-ASR.}
+\label{tab:kernels}
+\vspace{-1.5ex}
+\end{table}
+
+We implement three required optimisations:
+(1)~\textbf{Tile/block size tuning} for \texttt{linear\_kernel\_tf32} and attention kernels, systematically testing multiple \texttt{BLOCK\_M}/\texttt{BLOCK\_N}/\texttt{BLOCK\_K}, \texttt{num\_warps}, and \texttt{num\_stages} configurations;
+(2)~\textbf{Kernel fusion}: \texttt{linear\_gelu\_kernel} (Linear$+$GELU fused) for the Audio Encoder MLP, and \texttt{swiglu\_fused\_kernel} (two Linear projections $+$ SiLU gating in one kernel) for the Text Decoder MLP, eliminating intermediate global-memory round-trips;
+(3)~\textbf{FlashAttention-style attention} with online softmax and blockwise $QK^{\top}$/$V$ accumulation, avoiding the $O(\mathrm{seq}^2)$ intermediate score matrix.
+Our final implementation achieves \textbf{100.0\%} transcription accuracy and
+an end-to-end latency of \textbf{TODO~ms} versus \textbf{TODO~ms} for the Triton baseline
+(see Section~\ref{sec:comparison} for full results).
 
 \begin{figure}[h!]
   \begin{center}
@@ -98,6 +152,47 @@ workflow. For each phase, describe (a) what computation was required in the
 corresponding kernels and (b) what the relevant memory-access pattern was, e.g.,
 bandwidth-bounded or computation-bounded. 
 
+Our implementation follows the five-phase order recommended in the project guide.
+Table~\ref{tab:phases} summarises the computation and memory characteristics of each phase.
+
+\begin{table}[h!]
+\vspace{-1ex}
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lm{3.0cm}m{6.5cm}l}
+\toprule
+\textbf{Phase} & \textbf{Kernels} & \textbf{Computation} & \textbf{Bound} \\
+\midrule
+1 Element-wise
+  & \texttt{silu}, \texttt{gelu}
+  & Pointwise $x\sigma(x)$ / tanh-GELU; one read, one write per element
+  & Memory \\
+2 Reductions
+  & \texttt{softmax}, \texttt{softmax\_inplace}, \texttt{rmsnorm}, \texttt{layernorm}
+  & One HBM read + write per row. Softmax: $\max \to (x_i - \max) \to \exp \to \sum \to \div$; RMSNorm: $\sqrt{\langle x^2\rangle}\!\to\!wx/\mathrm{rms}$; LayerNorm: $(\mu,\sigma^2)\!\to\!(x{-}\mu)/\sigma{\cdot}w{+}b$
+  & Memory \\
+3 2D tiled matmul
+  & \texttt{linear\_kernel\_tf32}
+  & Tiled $A B$ via \texttt{tl.dot} in TF32; accumulator in registers; inner loop over $K$ strips
+  & Compute \\
+4 Attention
+  & \texttt{attention\_scores}, \texttt{attention\_output}
+  & $QK^\top{\cdot}s \to \mathrm{softmax\_inplace} \to \mathrm{attn}{\cdot}V$; naive writes $O(T^2)$ score matrix to HBM$^\dagger$
+  & Memory$^\dagger$ \\
+5 Positional encoding
+  & \texttt{compute\_freqs}
+  & Precompute $\cos/\sin(p\cdot\theta_i)$ cache; executed once per forward pass
+  & Memory \\
+\bottomrule
+\end{tabular}
+}% end resizebox
+\caption{Five implementation phases, their kernels, computation, and memory-access characteristics.
+$^\dagger$The naive 3-kernel attention is memory-bound due to the $O(T^2)$ score matrix;
+the FlashAttention-style replacement (Section~\ref{sec:optimization}) keeps statistics in registers and is compute-bound.}
+\label{tab:phases}
+\vspace{-1.5ex}
+\end{table}
 
 
 \subsection{Design Choices}

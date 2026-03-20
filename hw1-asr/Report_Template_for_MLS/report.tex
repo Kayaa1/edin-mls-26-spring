@@ -178,7 +178,7 @@ Table~\ref{tab:phases} summarises the computation and memory characteristics of 
   & Compute \\
 4 Attention
   & \texttt{attention\_scores}, \texttt{attention\_output}
-  & $QK^\top{\cdot}s \to \mathrm{softmax\_inplace} \to \mathrm{attn}{\cdot}V$; naive writes $O(T^2)$ score matrix to HBM$^\dagger$
+  & $QK^\top{\cdot}s \to \mathrm{softmax\_inplace} \to \mathrm{attn}{\cdot}V$; naive writes $O(T_q T_k)$ score matrix to HBM$^\dagger$
   & Memory$^\dagger$ \\
 5 Positional encoding
   & \texttt{compute\_freqs}
@@ -188,7 +188,7 @@ Table~\ref{tab:phases} summarises the computation and memory characteristics of 
 \end{tabular}
 }% end resizebox
 \caption{Five implementation phases, their kernels, computation, and memory-access characteristics.
-$^\dagger$The naive 3-kernel attention is memory-bound due to the $O(T^2)$ score matrix;
+$^\dagger$The naive 3-kernel attention is memory-bound due to the $O(T_q T_k)$ score matrix;
 the FlashAttention-style replacement (Section~\ref{sec:optimization}) keeps statistics in registers and is compute-bound.}
 \label{tab:phases}
 \vspace{-1.5ex}

@@ -53,6 +53,36 @@
 | T2 | 48070.3 | 3697.71 | 1767.59 | 6.47 | 1860.78 | 519.41 | 100.0 | PASS |
 | T3 | 57869.7 | 4451.52 | 2094.48 | 6.33 | 1842.62 | 535.17 | 100.0 | PASS |
 
+## Step 2B：Triton Linear Tile（Fused Off）
+
+### 修改的参数
+
+| 配置 ID | Backend | `MLP.FUSED` | `EncoderMLP.FUSED` | `USE_FLASH_ATTENTION` | `Linear.TILE_M/N/K` | Flash 参数 |
+|---|---|---|---|---|---|---|
+| U1 | `triton` | `False` | `False` | `False` | `64/64/32` | off |
+| U2 | `triton` | `False` | `False` | `False` | `128/64/32` | off |
+| U3 | `triton` | `False` | `False` | `False` | `64/128/32` | off |
+
+### 该参数的影响
+
+| 参数 | 对性能的影响 |
+|---|---|
+| `Linear.BACKEND` | 固定为 `triton` 后，端到端速度会直接受到自写 matmul kernel 质量影响；这一组可以单独观察 Triton linear 本身是否有收益，不再混入 fused MLP 的额外代价。 |
+| `MLP.FUSED` | 固定关闭后，decoder MLP 回到标准路径，能把实验重点放在线性层 tile 上；如果之前的 fused kernel 本身带来了寄存器压力、padding 或额外搬运开销，那么关闭它后端到端有机会更快。 |
+| `EncoderMLP.FUSED` | 固定关闭后，encoder 侧不会再尝试 fused `Linear + GELU` 路径，可避免把 `audio_encoder` 的变化误归因到 linear tile。 |
+| `Linear.TILE_M` | 增大 `TILE_M` 更可能改善大 `M` 场景下的吞吐，但如果 decode 阶段 `M` 很小，tile 过大反而会让 occupancy 下降。 |
+| `Linear.TILE_N` | 增大 `TILE_N` 更可能改善大输出维场景下的权重复用，但 tile 过大时也更容易带来资源浪费，拖慢端到端。 |
+| `Linear.TILE_K` | 保持 `32` 可以把变化集中在 `M/N` 两个方向，避免同时改动 reduction 粒度导致结果难归因。 |
+| `USE_FLASH_ATTENTION` | 固定关闭后，attention 路径保持不变，便于把这一组的性能差异归因到 `triton + fused off` 的 linear 配置。 |
+
+### 实验结果
+
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Audio Encoder (ms) | Projector (ms) | Decoder Prefill (ms) | Decode Step (ms) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| U1 | 54828.0 | 4217.54 | 1161.10 | 6.47 | 1789.75 | 480.31 | 100.0 | PASS |
+| U2 | 213098.4 | 16392.19 | 1236.47 | 6.33 | 2648.50 | 734.09 | 100.0 | PASS |
+| U3 | 45012.6 | 3462.51 | 1012.97 | 6.91 | 1767.62 | 503.65 | 100.0 | PASS |
+
 ## Step 3：FlashAttention
 
 ### 修改的参数
@@ -90,6 +120,9 @@
 | T1 | `triton` | on | off | `64/64/32` | off | 46321.3 | 3563.18 | 1783.67 | 7.83 | 1582.22 | 498.65 | 100.0 | PASS |
 | T2 | `triton` | on | off | `128/64/32` | off | 48070.3 | 3697.71 | 1767.59 | 6.47 | 1860.78 | 519.41 | 100.0 | PASS |
 | T3 | `triton` | on | off | `64/128/32` | off | 57869.7 | 4451.52 | 2094.48 | 6.33 | 1842.62 | 535.17 | 100.0 | PASS |
+| U1 | `triton` | off | off | `64/64/32` | off | 54828.0 | 4217.54 | 1161.10 | 6.47 | 1789.75 | 480.31 | 100.0 | PASS |
+| U2 | `triton` | off | off | `128/64/32` | off | 213098.4 | 16392.19 | 1236.47 | 6.33 | 2648.50 | 734.09 | 100.0 | PASS |
+| U3 | `triton` | off | off | `64/128/32` | off | 45012.6 | 3462.51 | 1012.97 | 6.91 | 1767.62 | 503.65 | 100.0 | PASS |
 | F1 | `cublas` | off | on | `64/64/32` | `32/64, 4w, 2s` | 27696.7 | 2130.52 | 1402.32 | 6.70 | 2228.55 | 452.08 | 100.0 | PASS |
 | F2 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 2s` | N/A | N/A | 2663.49 | 6.84 | OOR | OOR | N/A | INVALID |
 | F3 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 1s` | 25836.2 | 1987.40 | 2448.10 | 7.76 | 1884.88 | 524.78 | 100.0 | PASS |

@@ -36,3 +36,6 @@ requirements.lock
 *.out
 *.synctex.gz
 *.bbl
+
+# Personal report (not shared)
+hw1-asr/Report_Template_for_MLS/

@@ -580,11 +580,15 @@ def scaled_dot_product_attention_legacy(
 
 
 def _flash_attention_config(seq_k: int, head_dim: int) -> Tuple[int, int, int, int]:
-    """Pick a conservative starting config for the FlashAttention-style kernel."""
-    block_m = 32 if seq_k >= 64 else 16
+    """Tuned config selected from grid search (see experiment record).
+    F3 (BLOCK_M=64, BLOCK_N=64, num_warps=4, num_stages=1) gave the best
+    end-to-end latency (25836 ms).  BLOCK_M=64 with num_stages=2 ran out of
+    shared memory (F2=OOR), so num_stages is kept at 1.
+    """
+    block_m = 64 if seq_k >= 64 else 16
     block_n = 64
     num_warps = 4 if head_dim <= 64 else 8
-    num_stages = 2
+    num_stages = 1
     return block_m, block_n, num_warps, num_stages
 
 

@@ -114,7 +114,7 @@
 ## 汇总表
 
 | 配置 ID | Backend | Fused | Flash | Linear Tile | Flash 参数 | E2E Time(ms) | E2E Speed(ms/token) | Estimated Total (50 tokens)(ms) | Audio Encoder(ms) | Audio Encoder(%) | Projector(ms) | Projector(%) | Decoder Prefill(ms) | Decoder Prefill(%) | Decode Step(ms) | Decoder (50 steps)(%) | Accuracy | Status |
-|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
 | A | `cublas` | off | off | `64/64/32` | off | 45640.8 | 3510.83 | 28834.15 | 1198.66 | 4.2 | 6.35 | 0.022 | 1826.37 | 6.3 | 516.06 | 89.5 | 100.0 | PASS |
 | B | `cublas` | on | off | `64/64/32` | off | 48060.2 | 3696.94 | 27701.75 | 1134.41 | 4.1 | 6.82 | 0.025 | 1828.91 | 6.6 | 494.63 | 89.3 | 100.0 | PASS |
 | T1 | `triton` | on | off | `64/64/32` | off | 46321.3 | 3563.18 | 28306.30 | 1783.67 | 6.3 | 7.83 | 0.028 | 1582.22 | 5.6 | 498.65 | 88.1 | 100.0 | PASS |
@@ -126,3 +126,19 @@
 | F1 | `cublas` | off | on | `64/64/32` | `32/64, 4w, 2s` | 27696.7 | 2130.52 | 26241.53 | 1402.32 | 5.3 | 6.70 | 0.026 | 2228.55 | 8.5 | 452.08 | 86.1 | 100.0 | PASS |
 | F2 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 2s` | N/A | N/A | N/A | 2663.49 | N/A | 6.84 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
 | F3 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 1s` | 25836.2 | 1987.40 | 30579.70 | 2448.10 | 8.0 | 7.76 | 0.025 | 1884.88 | 6.2 | 524.78 | 85.8 | 100.0 | PASS |
+
+## NSYS 采样记录
+
+| 配置 ID | NSYS 采样结果 (Time ms) | Tokens | Speed (ms/token) | Accuracy | Status | NSYS 文件 |
+|---|---:|---:|---:|---:|---|---|
+| A | 61214.7 | 13 | 4708.82 | 100.0 | PASS | `nsys_A.nsys-rep` |
+| B | 69935.4 | 13 | 5379.65 | 100.0 | PASS | `nsys_B.nsys-rep` |
+| T1 | 38576.3 | 13 | 2967.41 | 100.0 | PASS | `nsys_T1.nsys-rep` |
+| T2 | 50560.6 | 13 | 3889.28 | 100.0 | PASS | `nsys_T2.nsys-rep` |
+| T3 | 48692.0 | 13 | 3745.54 | 100.0 | PASS | `nsys_T3.nsys-rep` |
+| U1 | 43114.7 | 13 | 3316.52 | 100.0 | PASS | `nsys_U1.nsys-rep` |
+| U2 | 52883.7 | 13 | 4067.98 | 100.0 | PASS | `nsys_U2.nsys-rep` |
+| U3 | 48398.0 | 13 | 3722.93 | 100.0 | PASS | `nsys_U3.nsys-rep` |
+| F1 | 28653.6 | 13 | 2204.12 | 100.0 | PASS | `nsys_F1.nsys-rep` |
+| F2 | OOR | N/A | N/A | N/A | INVALID | `nsys_F2.nsys-rep` |
+| F3 | 26843.5 | 13 | 2064.89 | 100.0 | PASS | `nsys_F3.nsys-rep` |

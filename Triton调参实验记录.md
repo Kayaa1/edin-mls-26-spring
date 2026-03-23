@@ -20,10 +20,10 @@
 
 ### 实验结果
 
-| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Audio Encoder (ms) | Projector (ms) | Decoder Prefill (ms) | Decode Step (ms) | Accuracy | Status |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| A | 45640.8 | 3510.83 | 1198.66 | 6.35 | 1826.37 | 516.06 | 100.0 | PASS |
-| B | 48060.2 | 3696.94 | 1134.41 | 6.82 | 1828.91 | 494.63 | 100.0 | PASS |
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Estimated Total (50 tokens) (ms) | Audio Encoder (ms) | Audio Encoder (%) | Projector (ms) | Projector (%) | Decoder Prefill (ms) | Decoder Prefill (%) | Decode Step (ms) | Decoder (50 steps) (%) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| A | 45640.8 | 3510.83 | 28834.15 | 1198.66 | 4.2 | 6.35 | 0.0 | 1826.37 | 6.3 | 516.06 | 89.5 | 100.0 | PASS |
+| B | 48060.2 | 3696.94 | 27701.75 | 1134.41 | 4.1 | 6.82 | 0.0 | 1828.91 | 6.6 | 494.63 | 89.3 | 100.0 | PASS |
 
 ## Step 2：Triton Linear Tile
 
@@ -47,11 +47,11 @@
 
 ### 实验结果
 
-| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Audio Encoder (ms) | Projector (ms) | Decoder Prefill (ms) | Decode Step (ms) | Accuracy | Status |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| T1 | 46321.3 | 3563.18 | 1783.67 | 7.83 | 1582.22 | 498.65 | 100.0 | PASS |
-| T2 | 48070.3 | 3697.71 | 1767.59 | 6.47 | 1860.78 | 519.41 | 100.0 | PASS |
-| T3 | 57869.7 | 4451.52 | 2094.48 | 6.33 | 1842.62 | 535.17 | 100.0 | PASS |
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Estimated Total (50 tokens) (ms) | Audio Encoder (ms) | Audio Encoder (%) | Projector (ms) | Projector (%) | Decoder Prefill (ms) | Decoder Prefill (%) | Decode Step (ms) | Decoder (50 steps) (%) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| T1 | 46321.3 | 3563.18 | 28306.30 | 1783.67 | 6.3 | 7.83 | 0.0 | 1582.22 | 5.6 | 498.65 | 88.1 | 100.0 | PASS |
+| T2 | 48070.3 | 3697.71 | 29605.40 | 1767.59 | 6.0 | 6.47 | 0.0 | 1860.78 | 6.3 | 519.41 | 87.7 | 100.0 | PASS |
+| T3 | 57869.7 | 4451.52 | 30701.85 | 2094.48 | 6.8 | 6.33 | 0.0 | 1842.62 | 6.0 | 535.17 | 87.2 | 100.0 | PASS |
 
 ## Step 2B：Triton Linear Tile（Fused Off）
 
@@ -77,11 +77,11 @@
 
 ### 实验结果
 
-| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Audio Encoder (ms) | Projector (ms) | Decoder Prefill (ms) | Decode Step (ms) | Accuracy | Status |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| U1 | 54828.0 | 4217.54 | 1161.10 | 6.47 | 1789.75 | 480.31 | 100.0 | PASS |
-| U2 | 213098.4 | 16392.19 | 1236.47 | 6.33 | 2648.50 | 734.09 | 100.0 | PASS |
-| U3 | 45012.6 | 3462.51 | 1012.97 | 6.91 | 1767.62 | 503.65 | 100.0 | PASS |
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Estimated Total (50 tokens) (ms) | Audio Encoder (ms) | Audio Encoder (%) | Projector (ms) | Projector (%) | Decoder Prefill (ms) | Decoder Prefill (%) | Decode Step (ms) | Decoder (50 steps) (%) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| U1 | 54828.0 | 4217.54 | 26972.97 | 1161.10 | 4.3 | 6.47 | 0.0 | 1789.75 | 6.6 | 480.31 | 89.0 | 100.0 | PASS |
+| U2 | 213098.4 | 16392.19 | 40595.57 | 1236.47 | 3.0 | 6.33 | 0.0 | 2648.50 | 6.5 | 734.09 | 90.4 | 100.0 | PASS |
+| U3 | 45012.6 | 3462.51 | 27970.04 | 1012.97 | 3.6 | 6.91 | 0.0 | 1767.62 | 6.3 | 503.65 | 90.0 | 100.0 | PASS |
 
 ## Step 3：FlashAttention
 
@@ -105,24 +105,24 @@
 
 ### 实验结果
 
-| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Audio Encoder (ms) | Projector (ms) | Decoder Prefill (ms) | Decode Step (ms) | Accuracy | Status |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| F1 | 27696.7 | 2130.52 | 1402.32 | 6.70 | 2228.55 | 452.08 | 100.0 | PASS |
-| F2 | N/A | N/A | 2663.49 | 6.84 | OOR | OOR | N/A | INVALID |
-| F3 | 25836.2 | 1987.40 | 2448.10 | 7.76 | 1884.88 | 524.78 | 100.0 | PASS |
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Estimated Total (50 tokens) (ms) | Audio Encoder (ms) | Audio Encoder (%) | Projector (ms) | Projector (%) | Decoder Prefill (ms) | Decoder Prefill (%) | Decode Step (ms) | Decoder (50 steps) (%) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| F1 | 27696.7 | 2130.52 | 26241.53 | 1402.32 | 5.3 | 6.70 | 0.0 | 2228.55 | 8.5 | 452.08 | 86.1 | 100.0 | PASS |
+| F2 | N/A | N/A | N/A | 2663.49 | N/A | 6.84 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
+| F3 | 25836.2 | 1987.40 | 30579.70 | 2448.10 | 8.0 | 7.76 | 0.0 | 1884.88 | 6.2 | 524.78 | 85.8 | 100.0 | PASS |
 
 ## 汇总表
 
-| 配置 ID | Backend | Fused | Flash | Linear Tile | Flash 参数 | E2E Time(ms) | E2E Speed(ms/token) | Audio Encoder(ms) | Projector(ms) | Decoder Prefill(ms) | Decode Step(ms) | Accuracy | Status |
-|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| A | `cublas` | off | off | `64/64/32` | off | 45640.8 | 3510.83 | 1198.66 | 6.35 | 1826.37 | 516.06 | 100.0 | PASS |
-| B | `cublas` | on | off | `64/64/32` | off | 48060.2 | 3696.94 | 1134.41 | 6.82 | 1828.91 | 494.63 | 100.0 | PASS |
-| T1 | `triton` | on | off | `64/64/32` | off | 46321.3 | 3563.18 | 1783.67 | 7.83 | 1582.22 | 498.65 | 100.0 | PASS |
-| T2 | `triton` | on | off | `128/64/32` | off | 48070.3 | 3697.71 | 1767.59 | 6.47 | 1860.78 | 519.41 | 100.0 | PASS |
-| T3 | `triton` | on | off | `64/128/32` | off | 57869.7 | 4451.52 | 2094.48 | 6.33 | 1842.62 | 535.17 | 100.0 | PASS |
-| U1 | `triton` | off | off | `64/64/32` | off | 54828.0 | 4217.54 | 1161.10 | 6.47 | 1789.75 | 480.31 | 100.0 | PASS |
-| U2 | `triton` | off | off | `128/64/32` | off | 213098.4 | 16392.19 | 1236.47 | 6.33 | 2648.50 | 734.09 | 100.0 | PASS |
-| U3 | `triton` | off | off | `64/128/32` | off | 45012.6 | 3462.51 | 1012.97 | 6.91 | 1767.62 | 503.65 | 100.0 | PASS |
-| F1 | `cublas` | off | on | `64/64/32` | `32/64, 4w, 2s` | 27696.7 | 2130.52 | 1402.32 | 6.70 | 2228.55 | 452.08 | 100.0 | PASS |
-| F2 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 2s` | N/A | N/A | 2663.49 | 6.84 | OOR | OOR | N/A | INVALID |
-| F3 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 1s` | 25836.2 | 1987.40 | 2448.10 | 7.76 | 1884.88 | 524.78 | 100.0 | PASS |
+| 配置 ID | Backend | Fused | Flash | Linear Tile | Flash 参数 | E2E Time(ms) | E2E Speed(ms/token) | Estimated Total (50 tokens)(ms) | Audio Encoder(ms) | Audio Encoder(%) | Projector(ms) | Projector(%) | Decoder Prefill(ms) | Decoder Prefill(%) | Decode Step(ms) | Decoder (50 steps)(%) | Accuracy | Status |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| A | `cublas` | off | off | `64/64/32` | off | 45640.8 | 3510.83 | 28834.15 | 1198.66 | 4.2 | 6.35 | 0.0 | 1826.37 | 6.3 | 516.06 | 89.5 | 100.0 | PASS |
+| B | `cublas` | on | off | `64/64/32` | off | 48060.2 | 3696.94 | 27701.75 | 1134.41 | 4.1 | 6.82 | 0.0 | 1828.91 | 6.6 | 494.63 | 89.3 | 100.0 | PASS |
+| T1 | `triton` | on | off | `64/64/32` | off | 46321.3 | 3563.18 | 28306.30 | 1783.67 | 6.3 | 7.83 | 0.0 | 1582.22 | 5.6 | 498.65 | 88.1 | 100.0 | PASS |
+| T2 | `triton` | on | off | `128/64/32` | off | 48070.3 | 3697.71 | 29605.40 | 1767.59 | 6.0 | 6.47 | 0.0 | 1860.78 | 6.3 | 519.41 | 87.7 | 100.0 | PASS |
+| T3 | `triton` | on | off | `64/128/32` | off | 57869.7 | 4451.52 | 30701.85 | 2094.48 | 6.8 | 6.33 | 0.0 | 1842.62 | 6.0 | 535.17 | 87.2 | 100.0 | PASS |
+| U1 | `triton` | off | off | `64/64/32` | off | 54828.0 | 4217.54 | 26972.97 | 1161.10 | 4.3 | 6.47 | 0.0 | 1789.75 | 6.6 | 480.31 | 89.0 | 100.0 | PASS |
+| U2 | `triton` | off | off | `128/64/32` | off | 213098.4 | 16392.19 | 40595.57 | 1236.47 | 3.0 | 6.33 | 0.0 | 2648.50 | 6.5 | 734.09 | 90.4 | 100.0 | PASS |
+| U3 | `triton` | off | off | `64/128/32` | off | 45012.6 | 3462.51 | 27970.04 | 1012.97 | 3.6 | 6.91 | 0.0 | 1767.62 | 6.3 | 503.65 | 90.0 | 100.0 | PASS |
+| F1 | `cublas` | off | on | `64/64/32` | `32/64, 4w, 2s` | 27696.7 | 2130.52 | 26241.53 | 1402.32 | 5.3 | 6.70 | 0.0 | 2228.55 | 8.5 | 452.08 | 86.1 | 100.0 | PASS |
+| F2 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 2s` | N/A | N/A | N/A | 2663.49 | N/A | 6.84 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
+| F3 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 1s` | 25836.2 | 1987.40 | 30579.70 | 2448.10 | 8.0 | 7.76 | 0.0 | 1884.88 | 6.2 | 524.78 | 85.8 | 100.0 | PASS |

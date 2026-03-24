@@ -83,7 +83,7 @@
 | U2 | 213098.4 | 16392.19 | 40595.57 | 1236.47 | 3.0 | 6.33 | 0.016 | 2648.50 | 6.5 | 734.09 | 90.4 | 100.0 | PASS |
 | U3 | 45012.6 | 3462.51 | 27970.04 | 1012.97 | 3.6 | 6.91 | 0.025 | 1767.62 | 6.3 | 503.65 | 90.0 | 100.0 | PASS |
 
-## Step 3：FlashAttention
+## Step 3：FlashAttention（仅开 Flash，cublas 底座）
 
 ### 修改的参数
 
@@ -97,6 +97,7 @@
 
 | 参数 | 对性能的影响 |
 |---|---|
+| `Linear.BACKEND` | 固定为 `cublas` 后，这一组可以看作“只开 FlashAttention、其他大项保持关闭”的实验；此时 `Linear.TILE_M/N/K` 不参与实际计算路径，端到端变化主要来自 Flash 参数本身。 |
 | `USE_FLASH_ATTENTION` | 打开后，attention 不再显式物化完整 score 矩阵，理论上可减少显存读写并改善长序列 `decoder_prefill`；如果 block 配置不合适，也可能因为资源占用过高而变慢或直接 OOR。 |
 | `BLOCK_M` | `BLOCK_M` 越大，一个 kernel 一次处理的 query token 越多，通常有利于提高吞吐、摊薄 launch 开销；但也会抬高寄存器和共享内存占用。 |
 | `BLOCK_N` | `BLOCK_N` 越大，一次流式处理的 key/value block 越大，通常更有利于 K/V 复用和带宽效率；但这是最容易把 shared memory 顶满的参数之一。 |
@@ -110,6 +111,35 @@
 | F1 | 27696.7 | 2130.52 | 26241.53 | 1402.32 | 5.3 | 6.70 | 0.026 | 2228.55 | 8.5 | 452.08 | 86.1 | 100.0 | PASS |
 | F2 | N/A | N/A | N/A | 2663.49 | N/A | 6.84 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
 | F3 | 25836.2 | 1987.40 | 30579.70 | 2448.10 | 8.0 | 7.76 | 0.025 | 1884.88 | 6.2 | 524.78 | 85.8 | 100.0 | PASS |
+
+## Step 3B：FlashAttention（基于 U3 底座）
+
+### 修改的参数
+
+| 配置 ID | Backend | `MLP.FUSED` | `EncoderMLP.FUSED` | `USE_FLASH_ATTENTION` | `Linear.TILE_M/N/K` | Flash 参数 |
+|---|---|---|---|---|---|---|
+| UF1 | `triton` | `False` | `False` | `True` | `64/128/32` | `32/64, 4w, 2s` |
+| UF2 | `triton` | `False` | `False` | `True` | `64/128/32` | `64/64, 4w, 2s` |
+| UF3 | `triton` | `False` | `False` | `True` | `64/128/32` | `64/64, 4w, 1s` |
+
+### 该参数的影响
+
+| 参数 | 对性能的影响 |
+|---|---|
+| `Linear.BACKEND` | 固定为 `triton` 后，线性层耗时会继续受自写 matmul kernel 影响；这一组可以观察“U3 底座 + FlashAttention”是否优于 `cublas` 底座的 Flash 配置。 |
+| `MLP.FUSED` | 固定关闭后，decoder MLP 仍走标准路径，能避免 fused MLP 的额外开销掩盖 FlashAttention 的收益。 |
+| `EncoderMLP.FUSED` | 固定关闭后，encoder 侧保持普通路径，便于把变化归因到 `triton linear + flash` 的组合。 |
+| `Linear.TILE_M/N/K` | 固定为 `64/128/32` 后，保留 `U3` 这组在线性层上的最优底座，再单独比较三组 Flash 参数的效果。 |
+| `USE_FLASH_ATTENTION` | 打开后，attention 路径不再显式物化完整 score 矩阵，理论上更有机会改善 `decoder_prefill` 和端到端时间。 |
+| `BLOCK_M/BLOCK_N/num_warps/num_stages` | 这四个参数共同决定 FlashAttention 的块大小、并行粒度和流水深度；配置更激进时可能提高吞吐，也可能因为 shared memory 或寄存器压力过高而变慢或 OOR。 |
+
+### 实验结果
+
+| 配置 ID | E2E Time (ms) | E2E Speed (ms/token) | Estimated Total (50 tokens) (ms) | Audio Encoder (ms) | Audio Encoder (%) | Projector (ms) | Projector (%) | Decoder Prefill (ms) | Decoder Prefill (%) | Decode Step (ms) | Decoder (50 steps) (%) | Accuracy | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| UF1 | 31380.8 | 2413.91 | 31099.22 | 705.84 | 2.3 | 6.97 | 0.022 | 2082.25 | 6.7 | 566.08 | 91.0 | 100.0 | PASS |
+| UF2 | N/A | N/A | N/A | 644.26 | N/A | 6.46 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
+| UF3 | 28704.9 | 2208.07 | 28209.21 | 641.53 | 2.3 | 6.47 | 0.023 | 2055.35 | 7.3 | 510.12 | 90.4 | 100.0 | PASS |
 
 ## 汇总表
 
@@ -126,6 +156,9 @@
 | F1 | `cublas` | off | on | `64/64/32` | `32/64, 4w, 2s` | 27696.7 | 2130.52 | 26241.53 | 1402.32 | 5.3 | 6.70 | 0.026 | 2228.55 | 8.5 | 452.08 | 86.1 | 100.0 | PASS |
 | F2 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 2s` | N/A | N/A | N/A | 2663.49 | N/A | 6.84 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
 | F3 | `cublas` | off | on | `64/64/32` | `64/64, 4w, 1s` | 25836.2 | 1987.40 | 30579.70 | 2448.10 | 8.0 | 7.76 | 0.025 | 1884.88 | 6.2 | 524.78 | 85.8 | 100.0 | PASS |
+| UF1 | `triton` | off | on | `64/128/32` | `32/64, 4w, 2s` | 31380.8 | 2413.91 | 31099.22 | 705.84 | 2.3 | 6.97 | 0.022 | 2082.25 | 6.7 | 566.08 | 91.0 | 100.0 | PASS |
+| UF2 | `triton` | off | on | `64/128/32` | `64/64, 4w, 2s` | N/A | N/A | N/A | 644.26 | N/A | 6.46 | N/A | OOR | N/A | OOR | N/A | N/A | INVALID |
+| UF3 | `triton` | off | on | `64/128/32` | `64/64, 4w, 1s` | 28704.9 | 2208.07 | 28209.21 | 641.53 | 2.3 | 6.47 | 0.023 | 2055.35 | 7.3 | 510.12 | 90.4 | 100.0 | PASS |
 
 ## NSYS 采样记录
 
@@ -142,3 +175,4 @@
 | F1 | 28653.6 | 13 | 2204.12 | 100.0 | PASS | `nsys_F1.nsys-rep` |
 | F2 | OOR | N/A | N/A | N/A | INVALID | `nsys_F2.nsys-rep` |
 | F3 | 26843.5 | 13 | 2064.89 | 100.0 | PASS | `nsys_F3.nsys-rep` |
+
